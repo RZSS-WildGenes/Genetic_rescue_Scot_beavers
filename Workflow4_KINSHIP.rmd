@@ -1,0 +1,669 @@
+---
+title: "Beaver Kinship workflow"
+author: "Kara Dicks"
+date: '`r Sys.Date()`'
+output:
+  rmdformats::downcute:
+    self_contained: true
+    toc_depth: 4
+    code_folding: show
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r options, echo=F, message = F, warning = F}
+library(knitr)
+library(rmdformats)
+
+## Global options
+opts_chunk$set(comment=NA, 
+                      prompt=FALSE,
+                      fig.width=6, 
+                      fig.height=6, 
+                      echo=T,
+                      eval=T, 
+                      warning=FALSE, 
+                      message=F)
+opts_knit$set(width=75)
+
+# Always load
+library(tidyverse)
+library(patchwork)
+library(data.table)
+
+
+# ggplot
+library(ggthemr)
+ggthemr(palette = "pale", layout = "clean", 
+        line_weight = 0.7, text_size = 12, type = "outer")
+library(cowplot)
+library(ggrepel)
+
+
+cols_all <- 
+  data.frame(Pop_same = c(
+    "Bavaria",
+    "Knapdale_Bavaria",
+    "Knapdale_current",
+    "Knapdale_Norway",
+    "Norway",
+    "Tayside"
+    ),
+    Pop_same2 = c(
+    "Bavaria \nreference",
+    "Knapdale \nreinforcement",
+    "Knapdale \ncurrent",
+    "Knapdale trial \ntranslocation",
+    "Norway \nreference",
+    "Tayside \nreference"
+    ),
+colours= c(
+  "#BBBBBB",
+  "#EE6677",
+  "#CCBB44",
+  "#66CCEE",
+  "#4477AA",
+  "#AA3377"
+),
+Pop_order = c(
+  6,4,3,2,1,5
+))
+
+ggCols <- cols_all$colours
+names(ggCols) <- cols_all$Pop_same
+ggCols2 <- cols_all$colours
+names(ggCols2) <- cols_all$Pop_same2
+
+
+```
+
+Package versions:
+ngsRelate v2
+
+
+
+# Test out effect of MAF filtering on KING results
+
+```{bash}
+# note have to include each individual only once, so using the structure file as input. 
+
+plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE # create standard vcf - 1451 SNPs
+
+
+# Now filter for MAF
+plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --maf 0.1 --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE_maf0.1 # 1391 SNPs
+
+
+plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --maf 0.2 --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE_maf0.2 #1078 SNPs
+
+
+plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --maf 0.3 --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE_maf0.3 # 580 SNPs
+
+```
+
+
+
+
+# Run ngsRelate
+```{bash}
+mkdir Kinship
+grep "^#CHROM" input_data/BEV_V6_10_22_STRUCTURE.vcf | sed 's/\t/\n/g' | grep "^BEV"  > Kinship/popmap_ngsRelate
+
+~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE.ngsRelate
+
+~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE_maf0.1.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE_maf0.1.ngsRelate
+
+~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE_maf0.2.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE_maf0.2.ngsRelate
+
+~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE_maf0.3.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE_maf0.3.ngsRelate
+```
+
+
+```{r}
+# read in populations
+pops <- 
+  openxlsx::read.xlsx("List_beavers_groups_HT_edits.xlsx", sheet = "Clean_data_KD") %>% 
+  select(-Group_code) %>% 
+  rename(Group2 = `Group2_(where_relevant)`) %>% 
+  mutate(ida = Sample, idb = Sample,
+         PopA = Group1, PopB=Group1,
+         Pop2A = Group2, Pop2B = Group2)
+
+king_maf0 <- fread("Kinship/BEV_V6_10_22_STRUCTURE.ngsRelate", header=T) %>% 
+  select(ida, idb, R0, R1, nSites, KING) %>% 
+  left_join(select(pops, ida, PopA, Pop2A)) %>% 
+  left_join(select(pops, idb, PopB, Pop2B)) %>% 
+  mutate(maf = 0)
+
+
+king_maf1 <- fread("Kinship/BEV_V6_10_22_STRUCTURE_maf0.1.ngsRelate", header=T) %>% 
+  select(ida, idb, R0, R1, nSites, KING) %>% 
+  left_join(select(pops, ida, PopA, Pop2A)) %>% 
+  left_join(select(pops, idb, PopB, Pop2B)) %>%
+  mutate(maf = 0.1)
+
+king_maf2 <- fread("Kinship/BEV_V6_10_22_STRUCTURE_maf0.2.ngsRelate", header=T) %>% 
+  select(ida, idb, R0, R1, nSites, KING) %>% 
+  left_join(select(pops, ida, PopA, Pop2A)) %>% 
+  left_join(select(pops, idb, PopB, Pop2B)) %>%
+  mutate(maf = 0.2)
+  
+king_maf3 <- fread("Kinship/BEV_V6_10_22_STRUCTURE_maf0.3.ngsRelate", header=T) %>% 
+  select(ida, idb, R0, R1, nSites, KING) %>% 
+  left_join(select(pops, ida, PopA, Pop2A)) %>% 
+  left_join(select(pops, idb, PopB, Pop2B)) %>%
+  mutate(maf = 0.3)
+  
+
+king <- 
+  rbind(king_maf0, king_maf1, king_maf2, king_maf3) %>% 
+  mutate(Pop_same = ifelse(PopA == PopB, PopA, NA),
+         maf = as.character(maf)) %>% 
+  filter(Pop_same != "Knapdale_BORN") %>% # be aware that this removes all NA values as well
+  left_join(cols_all)
+  
+#~ add in the knap_current category
+king_current <- 
+  king %>% 
+  filter(!is.na(Pop2A) & !is.na(Pop2B)) %>% 
+  filter(Pop2A == Pop2B) %>% 
+  mutate(ida = paste0(ida, "_KC"),
+         idb = paste0(idb, "_KC"),
+         Pop_same = "Knapdale_current",
+         Pop_same2 = "Knapdale \ncurrent" ,
+         Pop_order = 3)
+
+
+king <-
+  king %>% 
+  rbind(king_current) %>% 
+  mutate(Pop_order = as.numeric(Pop_order))
+
+```
+
+
+
+## Assess effect of MAF
+
+Mean and CI
+```{r}
+
+king_summ0 <- 
+  king %>% 
+  filter(maf == 0 & !is.na(Pop_same)) %>% 
+  group_by(Pop_same) %>% 
+  summarise(mean = mean(KING, na.rm = TRUE),
+            sd = sd(KING, na.rm = TRUE),
+            count = n()) %>% 
+  mutate(se = sd / sqrt(count),
+         CI.ll = (mean + -1.96 * (sd/sqrt(count))),
+         CI.hl = (mean + 1.96 * (sd/sqrt(count)))) %>% 
+  select(-sd, -se, -count)%>% 
+  mutate(maf = 0)
+
+king_summ1 <- 
+  king %>% 
+  filter(maf == 0.1 & !is.na(Pop_same)) %>% 
+  group_by(Pop_same) %>% 
+  summarise(mean = mean(KING, na.rm = TRUE),
+            sd = sd(KING, na.rm = TRUE),
+            count = n()) %>% 
+  mutate(se = sd / sqrt(count),
+         CI.ll = (mean + -1.96 * (sd/sqrt(count))),
+         CI.hl = (mean + 1.96 * (sd/sqrt(count)))) %>% 
+  select(-sd, -se, -count) %>% 
+  mutate(maf = 0.1)
+
+king_summ2 <- 
+  king %>% 
+  filter(maf == 0.2 & !is.na(Pop_same)) %>% 
+  group_by(Pop_same) %>% 
+  summarise(mean = mean(KING, na.rm = TRUE),
+            sd = sd(KING, na.rm = TRUE),
+            count = n()) %>% 
+  mutate(se = sd / sqrt(count),
+         CI.ll = (mean + -1.96 * (sd/sqrt(count))),
+         CI.hl = (mean + 1.96 * (sd/sqrt(count)))) %>% 
+  select(-sd, -se, -count)%>% 
+  mutate(maf = 0.2)
+
+king_summ3 <- 
+  king %>% 
+  filter(maf == 0.3 & !is.na(Pop_same)) %>% 
+  group_by(Pop_same) %>% 
+  summarise(mean = mean(KING, na.rm = TRUE),
+            sd = sd(KING, na.rm = TRUE),
+            count = n()) %>% 
+  mutate(se = sd / sqrt(count),
+         CI.ll = (mean + -1.96 * (sd/sqrt(count))),
+         CI.hl = (mean + 1.96 * (sd/sqrt(count)))) %>% 
+  select(-sd, -se, -count)%>% 
+  mutate(maf = 0.3)
+
+
+
+king_summ <- 
+  rbind(king_summ0, king_summ1, king_summ2, king_summ3) %>% 
+  left_join(cols_all) %>% 
+  mutate(maf = as.character(maf))
+```
+
+```{r}
+plot_king_maf <-
+king_summ %>% 
+  ggplot(aes(maf, mean, colour=Pop_same2))+
+  geom_errorbar(aes(ymin=CI.ll, 
+                    ymax=CI.hl), 
+                colour="black", width=.2)+
+  geom_point(size=3)+
+  facet_wrap(~(reorder(Pop_same2, Pop_order)),scales="free_y") +
+  ylab(expression("Mean kinship (KING)"))+
+  xlab("Minor allele frequency") +
+  scale_color_manual(values=ggCols2)+
+  theme(legend.position = "none")
+
+plot_king_maf
+```
+
+
+```{r, eval = F}
+ggsave2("Kinship/plot_King_varying_maf_meanCI.jpg",
+        plot_king_maf,
+        width=18, height = 12, units = "cm")
+```
+
+
+## Summary per population at MAF 0
+```{r}
+plot_mean_CI <- 
+  king_summ %>% 
+  filter(maf == 0) %>% 
+  ggplot(aes(reorder(Pop_same2, Pop_order), mean))+
+  geom_jitter(data = filter(king, maf == 0), 
+              aes(reorder(Pop_same2, Pop_order), KING, colour=Pop_same2), 
+              size=2, alpha=0.15, width = 0.15)+
+  geom_errorbar(aes(ymin=CI.ll, 
+                    ymax=CI.hl), 
+                colour="black", width=.4, size = 0.3)+
+  geom_point(size=1, colour = "black")+
+  scale_color_manual(values=ggCols2)+
+  xlab("Population") +
+  ylab("Kinship (KING-robust)")+
+  theme(legend.position = "none")
+
+plot_mean_CI
+
+```
+
+```{r, eval = F}
+ggsave2("Kinship/plot_King_mean.jpg",
+        plot_mean_CI,
+        width=18, height = 8, units = "cm")
+
+```
+
+
+```{r}
+kingMAF0 <- 
+  king %>% filter(maf == 0) %>% 
+  mutate(Pop_same2 = fct_reorder(Pop_same2, Pop_order)) 
+
+kingSummMAF0 <- 
+  king_summ %>% filter(maf == 0) %>% 
+  mutate(Pop_same2 = fct_reorder(Pop_same2, Pop_order)) 
+
+
+plot_density <- 
+  ggplot()+
+  ggdist::stat_halfeye(
+    data = kingMAF0,
+    aes(Pop_same2, KING, colour = Pop_same2, fill = Pop_same2),
+    adjust = .5, ## custom bandwidth
+    width = .6, ## adjust height
+    justification = -.2,  ## move geom to the right
+    slab_type = "pdf", # alternative is histogram
+    .width = 0, ## remove slab interval
+    point_colour = NA
+  ) +
+  gghalves::geom_half_point(
+    data = kingMAF0, 
+    aes(Pop_same2, KING, colour = Pop_same2, fill = Pop_same2),
+    side = "l", ## draw jitter on the left
+    range_scale = .4, ## control range of jitter
+    alpha = .15, ## add some transparency
+  ) +
+   geom_point(
+    data = kingSummMAF0,
+    aes(x=Pop_same2, y=mean,
+        # colour = Pop_same2
+        ),
+    colour = "black",
+    size = 0.9
+    )+
+  geom_errorbar(
+    data = kingSummMAF0,
+    aes(x=Pop_same2, ymin = CI.ll, ymax = CI.hl,
+        # colour = Pop_same2
+        ),
+    colour = "black",
+    width = 0.15,
+    size = 0.25)+
+  coord_cartesian(ylim = c(-0.6, 0.4))+
+  scale_color_manual(values=ggCols2)+
+  scale_fill_manual(values = ggCols2)+
+  xlab("Population")+
+  ylab("Kinship (KING-robust)")+
+  theme(legend.position = "none")
+
+plot_density
+
+
+plot_histo <- 
+  ggplot()+
+  ggdist::stat_halfeye(
+    data = kingMAF0,
+    aes(Pop_same2, KING, colour = Pop_same2, fill = Pop_same2),
+    adjust = .5, ## custom bandwidth
+    width = .6, ## adjust height
+    justification = -.2,  ## move geom to the right
+    slab_type = "histogram", # alternative is histogram
+    breaks = 50,
+    .width = 0, ## remove slab interval
+    point_colour = NA,
+  ) +
+  gghalves::geom_half_point(
+    data = kingMAF0, 
+    aes(Pop_same2, KING, colour = Pop_same2, fill = Pop_same2),
+    side = "l", ## draw jitter on the left
+    range_scale = .4, ## control range of jitter
+    alpha = .15, ## add some transparency
+  ) +
+   geom_point(
+    data = kingSummMAF0,
+    aes(x=Pop_same2, y=mean,
+        # colour = Pop_same2
+        ),
+    colour = "black",
+    size = 0.9
+    )+
+  geom_errorbar(
+    data = kingSummMAF0,
+    aes(x=Pop_same2, ymin = CI.ll, ymax = CI.hl,
+        # colour = Pop_same2
+        ),
+    colour = "black",
+    width = 0.15,
+    size = 0.25)+
+  coord_cartesian(ylim = c(-0.6, 0.4))+
+  scale_color_manual(values=ggCols2)+
+  scale_fill_manual(values = ggCols2)+
+  xlab("Population")+
+  ylab("Kinship (KING-robust)")+
+  theme(legend.position = "none")
+
+plot_histo
+  
+```
+
+```{r, eval = F}
+ggsave2("Kinship/plot_King_density.jpg",
+        plot_density,
+        width=18, height = 8, units = "cm")
+
+
+ggsave2("Kinship/plot_King_histograms.jpg",
+        plot_histo,
+        width=18, height = 8, units = "cm")
+
+```
+
+
+```{r}
+plot_mean_boxplot <- 
+ggplot()+
+  gghalves::geom_half_point(
+    data = kingMAF0, 
+    aes(Pop_same2, KING, colour = Pop_same2, fill = Pop_same2),
+    side = "l", ## draw jitter on the left
+    range_scale = .4, ## control range of jitter
+    alpha = .15, ## add some transparency
+  ) +
+  gghalves::geom_half_point(
+    data = kingSummMAF0,
+    aes(x=Pop_same2, y=mean,
+        # colour = Pop_same2
+        ),
+    colour = "black",
+    transformation =PositionIdentity,
+    side="l",
+    size =0.9
+  )+
+  gghalves::geom_half_point(
+    data = kingSummMAF0,
+    aes(x=Pop_same2, y=CI.hl,
+        # colour = Pop_same2
+        ),
+    shape = 95,
+    colour = "black",
+    transformation =PositionIdentity,
+    side="l", 
+    size =5
+  )+
+  geom_segment(aes(x = 0.813, xend = 0.813, y = kingSummMAF0$CI.ll[5], yend = kingSummMAF0$CI.hl[5]))+
+  geom_segment(aes(x = 1.813, xend = 1.813, y = kingSummMAF0$CI.ll[4], yend = kingSummMAF0$CI.hl[4]))+
+  geom_segment(aes(x = 2.813, xend = 2.813, y = kingSummMAF0$CI.ll[3], yend = kingSummMAF0$CI.hl[3]))+
+  geom_segment(aes(x = 3.813, xend = 3.813, y = kingSummMAF0$CI.ll[2], yend = kingSummMAF0$CI.hl[2]))+
+  geom_segment(aes(x = 4.813, xend = 4.813, y = kingSummMAF0$CI.ll[6], yend = kingSummMAF0$CI.hl[6]))+
+  geom_segment(aes(x = 5.813, xend = 5.813, y = kingSummMAF0$CI.ll[1], yend = kingSummMAF0$CI.hl[1]))+
+  gghalves::geom_half_point(
+    data = kingSummMAF0,
+    aes(x=Pop_same2, y=CI.ll,
+        # colour = Pop_same2
+        ),
+    shape = 95,
+    colour = "black",
+    transformation =PositionIdentity,
+    side="l", 
+    size =5
+  )+
+  gghalves::geom_half_boxplot(
+    data = kingMAF0,
+    aes(x = Pop_same2, y = KING, fill = Pop_same2),
+    side = "r",
+    center = T, 
+  #  errorbar.draw = F,
+    outlier.colour = NA,
+    width = 0.35
+      )+
+  coord_cartesian(ylim = c(-0.6, 0.4))+
+  scale_color_manual(values=ggCols2)+
+  scale_fill_manual(values = ggCols2)+
+  xlab("Population")+
+  ylab("Kinship (KING-robust)")+
+  theme(legend.position = "none")
+
+plot_mean_boxplot
+
+```
+```{r, eval = F}
+ggsave2("Kinship/plot_King_mean_boxplot.jpg",
+        plot_mean_boxplot,
+        width=18, height = 8, units = "cm")
+
+```
+
+
+
+# Specific relationships
+
+
+```{r}
+
+#~ import known relationships
+Known <- fread("Kinship/known_relationships.txt") %>% 
+  separate(comb, into = c("ida", "idb"), remove = F) %>% 
+  mutate(ida = paste0(ida, "_47"),
+         idb = paste0(idb, "_47")
+         )
+
+#~ Curate King dataset
+Knap_N <- 
+king_maf0 %>% 
+  mutate(Pop_same = ifelse(PopA == PopB, PopA, NA),
+         maf = as.character(maf)) %>% 
+  left_join(cols_all) %>% 
+  filter(PopA == "Knapdale_BORN" | PopA == "Knapdale_Norway") %>% 
+  filter(PopB == "Knapdale_BORN" | PopB == "Knapdale_Norway") %>% 
+  filter(ida != "BEV788_47" & idb != "BEV788_47")%>% 
+  left_join(Known) %>% 
+  mutate(KING_cat = ifelse(KING > 0.354, "Twins",
+                           ifelse(KING > 0.177 & KING <= 0.354, "1st-degree",
+                           ifelse(KING > 0.0884 & KING <= 0.177, "2nd-degree",
+                           ifelse(KING > 0.0442 & KING <=0.0884, "3rd-degree", 
+                                  "unrelated")))))
+
+cols_rel <- c( "#A3BE8C", # green
+             "#EBCB8B", # yellow
+              "#BF616A", # red
+              "#B48EAD", # purple
+              "#295BA7") # blue
+
+rel <- 
+  Knap_N %>% 
+  ggplot()+
+  geom_point(aes(R1, KING, colour = KING_cat))+
+  scale_color_manual(values = cols_rel, 
+                     name = "KING\nclassification"
+                     )+
+  xlab("Relatedness measured as R1")+
+  ylab("Relatedness measured as KING-robust")+
+  coord_cartesian(xlim = c(0,2.25), ylim = c(-0.2, 0.5))
+
+rel <- 
+rel +
+  geom_label_repel(
+    data=subset(Knap_N, known_relationship == "Parent-offspring"),
+    aes(R1, KING,
+        label=comb_names),
+    size=3,
+    fill = "#A3BE8C",
+    box.padding   = 0.5,
+    point.padding = 0.5,
+    nudge_x = 0.2,
+    nudge_y = 0.2,
+    segment.color = 'grey70') +
+  
+  geom_label_repel(
+    data=subset(Knap_N, known_relationship == "2nd deg"  ),
+    aes(R1, KING,
+        label=comb_names),
+    size=3,
+    fill = "#EBCB8B", 
+    box.padding   = 0.5,
+    point.padding = 0.5,
+    nudge_x = -0.75,
+    #  nudge_y = 0.1,
+    segment.color = 'grey70')+ 
+  
+  geom_label_repel(
+    data=subset(Knap_N, known_relationship == "Full-sib"    ),
+    aes(R1, KING,
+        label=comb_names),
+    size=3,
+    fill = "grey", 
+    box.padding   = 0.5,
+    point.padding = 0.5,
+    nudge_x = 0.5,
+    nudge_y = -0.1,
+    segment.color = 'grey70')
+
+rel
+```
+
+
+```{r, eval = F}
+ggsave2("Kinship/plot_known_relationships_R1.jpg",
+        rel,
+        width=23, height = 12, units = "cm")
+
+```
+
+
+
+```{r}
+
+
+rel0 <- 
+  Knap_N %>% 
+  ggplot()+
+  geom_hline(aes(yintercept = 0), colour = "grey70", lty=2)+
+  geom_point(aes(R1, R0), colour = "#B48EAD")+
+  xlab("R1")+
+  ylab("R0") +
+  coord_cartesian(ylim = c(-0.2, 0.8), xlim = c(-0.01, 2))
+  
+rel01 <- 
+  
+rel0 +
+  geom_label_repel(
+    data=subset(Knap_N, known_relationship == "Parent-offspring"  & comb_names != "Millie:Basil"& comb_names != "Millie:Gigha"
+                ),
+    aes(R1, R0,        label=comb_names),
+    size=3,    fill = "#A3BE8C",
+    box.padding   = 0.5,   point.padding = 0.1,
+   # nudge_x = -0.25,
+    nudge_y = -0.1,
+    segment.color = 'grey30') +
+   geom_label_repel(
+    data=subset(Knap_N, known_relationship == "Parent-offspring" & comb_names == "Millie:Basil"
+                ),
+    aes(R1, R0,        label=comb_names),
+    size=3,    fill = "#A3BE8C",
+    box.padding   = 0.5,   point.padding = 0.1,
+    nudge_x = -0.25,
+    nudge_y = -0.3,
+    segment.color = 'grey30') +
+    geom_label_repel(
+    data=subset(Knap_N, known_relationship == "Parent-offspring" & comb_names == "Millie:Gigha"
+                ),
+    aes(R1, R0,        label=comb_names),
+    size=3,    fill = "#A3BE8C",
+    box.padding   = 0.5,   point.padding = 0.1,
+    nudge_x = -0.25,
+    nudge_y = -0.1,
+    segment.color = 'grey30') +
+  geom_label_repel(
+    data=subset(Knap_N, known_relationship == "2nd deg"  ),
+    aes(R1, R0,       label=comb_names),
+    size=3,    fill = "#EBCB8B",     box.padding = 0.5,     point.padding = 0.1,
+    nudge_x = -0.75,
+  #  nudge_y = -0.1,
+    segment.color = 'grey30')  + 
+  
+  geom_label_repel(
+    data=subset(Knap_N, known_relationship == "Full-sib"    ),
+    aes(R1, R0,     label=comb_names),
+    size=3,     fill = "grey",     box.padding   = 0.5,    point.padding = 0.5,
+    nudge_x = 0.4,
+    nudge_y = 0.2,
+    segment.color = 'grey30')
+
+
+rel01 <- rel01 +
+  annotate("label", x = 1.8, y = 0.75, label = "Parent-offspring", fill = "#A3BE8C")+
+  annotate("label", x = 1.8, y = 0.69, label = "Full siblings", fill = "grey")+
+  annotate("label", x = 1.8, y = 0.63, label = "Grandparent-offspring", fill = "#EBCB8B")
+
+  rel01
+```
+
+
+
+```{r, eval = F}
+ggsave2("Kinship/plot_known_relationships_R0.jpg",
+        rel0,
+        width=23, height = 12, units = "cm")
+
+```
+

@@ -1,0 +1,22 @@
+# config file for snakefile pipeline: 2.ddRAD_SNP_calling_ref
+# @KaraDicks Created:2020_07_03
+
+#~~~~~~~~~~~ creating the popmap ~~~~~~~~~~~~~~~~~~~~#
+pop_select: # this is the hand selected list of individuals for analysis
+  "popmap_selected_2"
+
+  
+#~~~~~~~~~~~~ running gstacks ~~~~~~~~~~~~~~~~~~~~~~#
+suffix:
+  "_sorted.bam"
+
+loc_map_files:
+  "../1.mapping/1.mapped"
+
+
+#~~~~~~~~~~~~~ running popuplations ~~~~~~~~~~~~~~~~~~~~#
+pop_snp_output: # options as per stacks populations: --write-single-snp OR --write-random-snp OR leave blank for haplotypes. 
+  "--write-single-snp"
+
+pop_output_format: # note you can add mutliple output formats e.g "--vcf --structure --plink", just ensure they are all enclosed in a single set of quotes
+  "--vcf"

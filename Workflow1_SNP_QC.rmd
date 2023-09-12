@@ -1,0 +1,1001 @@
+---
+title: "3. SNP QC 2"
+author: "Jean-Marc Costanzi using a script from Kara Dicks"
+date: "Begun: 10/08/20, latest edit:`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r options, echo=F, message = F, warning = F}
+rm(list=ls())
+library(knitr)
+library(rmdformats)
+
+## Global options
+opts_chunk$set(comment=NA, 
+                      prompt=FALSE,
+                      tidy=TRUE,
+                      fig.width=6, 
+                      fig.height=6, 
+                      echo=T,
+                      eval=F, 
+                      warning=FALSE, 
+                      message=F)
+opts_knit$set(width=75)
+
+# Always load
+library(tidyverse)
+library(openxlsx)
+library(data.table)
+
+
+
+# ggplot
+# install.packages("Rserve")
+library(Rserve)
+library(ggthemr)
+library(cowplot)
+library(patchwork)
+ggthemr(palette = "pale", layout = "clean", 
+        line_weight = 0.7, text_size = 12, type = "outer")
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+getwd()
+```
+
+
+
+
+## Basic Filtering
+
+```{bash 0.basic}
+# The conda environment need to be installed using the snp_processing.yml file
+# USE CTRL+ALT+ENTER to run
+
+conda activate snp_processing
+
+cd ./myfolder
+
+
+in=./1.BasicFilt/populations.snps.vcf
+out=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3
+
+# min-meanDP= minimum depth per site; minDP= minimum depth per genotype
+# mac= minimum allele count
+
+vcftools --vcf $in --out $out --minDP 5 --min-meanDP 15 --mac 3 --recode --recode-INFO-all
+# 2505 SNPs, 128 individuals
+
+```
+  
+..  
+
+
+## SNP & Individual filtering
+
+  
+
+```{bash 4.geno30}
+
+
+in=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.recode.vcf
+out=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30
+
+
+vcftools --vcf $in --out $out --max-missing 0.3 --recode --recode-INFO-all
+
+# 2466 SNPs, 128 individuals
+
+
+vcftools --vcf "$out".recode.vcf --out $out --missing-indv # report missingness
+```
+
+
+
+```{r 4.calculate imiss, eval=T}
+
+
+file <- "1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30"
+
+imissing <- read.table(paste0(file,".imiss"),
+                       header = TRUE, stringsAsFactors = FALSE)
+
+ggplot(imissing, aes(x = F_MISS)) +
+  geom_histogram(binwidth = 0.05, color = "black", fill = "grey75") +
+  geom_vline(xintercept = .75, color = "darkblue", linetype = "dashed") +
+  scale_x_continuous(limits = c(0, 1)) 
+
+LQ_indv <- imissing %>%
+  filter(F_MISS > 0.75) %>%
+  select(INDV)
+
+nrow(LQ_indv) # 0 individuals removed
+
+outfile <- "1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30"
+ 
+write.table(LQ_indv, paste0(outfile,".imissFILT75"),
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+```{bash 4.ind75}
+# Remove the individuals with more than 75% missing data
+in=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.recode.vcf
+out=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75
+remove=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.imissFILT75
+
+vcftools --vcf $in --out $out --remove $remove --recode --recode-INFO-all 
+
+# 128 individuals left
+```
+
+
+
+
+```{bash 4.geno50}
+# genotyping rate 80%
+
+in=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.recode.vcf
+out=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80
+
+vcftools --vcf $in --out $out --max-missing 0.8 --recode --recode-INFO-all
+
+# 2183 SNPs, 128 ind.
+
+vcftools --vcf "$out".recode.vcf --out $out --missing-indv
+
+```
+
+
+```{r 4.calc imiss80, eval=T}
+
+file <- "./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80"
+
+imissing <- read.table(paste0(file,".imiss"),
+                       header = TRUE, stringsAsFactors = FALSE)
+
+ggplot(imissing, aes(x = F_MISS)) +
+  geom_histogram(binwidth = 0.05, color = "black", fill = "grey75") +
+  geom_vline(xintercept = .60, color = "darkblue", linetype = "dashed") +
+  scale_x_continuous(limits = c(0, 1)) 
+
+LQ_indv <- imissing %>%
+  filter(F_MISS > 0.20) %>%
+  select(INDV)
+
+nrow(LQ_indv) 
+outfile <- "./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80"
+
+write.table(LQ_indv, paste0(outfile,".imissFILT80"),
+            col.names = FALSE, row.names = FALSE, quote = FALSE)
+```
+
+
+```{bash 4.ind50}
+#~ Manually remove Beauly individuals, as they will not be included in the analysis and might bias the LD and HWE analysis.
+
+in=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.recode.vcf
+out=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.Beauly.remove
+remove=./1.BasicFilt/Beauly_remove
+
+vcftools --vcf $in --out $out --remove $remove --recode --recode-INFO-all 
+
+# 125 individuals left
+```
+
+```{bash 4.ind50}
+#~ Remove the individuals
+in=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.Beauly.remove.recode.vcf
+out=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.ind80
+remove=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.imissFILT80
+
+vcftools --vcf $in --out $out --remove $remove --recode --recode-INFO-all 
+
+# 118 individuals left
+```
+
+
+
+
+```{bash}
+# Check if there is SNPs with the same Chr and Position
+
+grep -v "^##" ./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.ind80.recode.vcf | cut -f1-3 >  ./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.ind80.snps
+```
+
+```{r}
+snps <- fread("./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.ind80.snps") 
+names(snps) <- c("CHROM", "POS", "ID")
+snps <- mutate(snps, CHROM_POS = paste(CHROM, POS, sep="-")) 
+
+dups <- 
+  snps %>% 
+  group_by(CHROM_POS) %>% 
+  count() %>% 
+  subset(n> 1)
+
+# 0 SNPs are duplicated
+
+subset(snps, CHROM_POS %in% dups$CHROM_POS) %>% 
+  select(CHROM, POS) %>% 
+  write.table("./1.BasicFilt/Exclude_SNPs",
+              row.names=F, col.names=F, quote=F, sep="\t")
+
+```
+
+
+
+
+```{bash}
+in=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.ind80.recode.vcf
+out=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.ind80.edit
+remove=./1.BasicFilt/Exclude_SNPs
+
+vcftools --vcf $in --out $out --exclude-positions $remove --recode --recode-INFO-all 
+
+# 2183 SNPs, 118 ind
+```
+
+
+
+
+
+## Create plink files with population data
+
+```{bash 6.export_plink}
+
+in=./1.BasicFilt/BEV_V2.minDP5.meanDP15.mac3.geno30.ind75.geno80.ind80.edit.recode.vcf
+
+# Conversion to plink does not work with "HiC_scaffold_" as part of the chromosome name, so need to remove
+sed -i 's/HiC_scaffold_//' $in
+# Convert to plink
+out=./1.BasicFilt/BEV_V2.Filt.80
+vcftools --vcf $in --out $out --plink
+
+```
+
+
+*Create a popmap*
+
+```{r,eval=T}
+samples <-
+  fread("./1.BasicFilt/BEV_V2.Filt.80.ped") %>%
+  rename(IID=V2) %>% 
+  select(IID) %>%
+  mutate(WG_ID = gsub("[a-z]_","_", IID)) %>%
+  mutate(WG_ID = gsub("_[0-9][0-9]$","", WG_ID)) %>%
+  mutate(WG_ID = gsub("_[0-9][0-9][0-9][0-9]$","", WG_ID))
+
+
+# import metadata
+BEV_V2 <- read.csv("./popmap_selected_4.csv", header=T) %>% 
+  select(WG_ID, Origin)
+
+BEV_V2
+
+samples <- left_join(samples, BEV_V2) 
+
+
+
+
+# Add the group id to the plink file
+fread("./1.BasicFilt/BEV_V2.Filt.80.ped") %>% 
+  rename(IID=V2) %>% 
+  left_join(select(samples,IID, Origin)) %>% 
+  select(-V1) %>% 
+  select(Origin, IID, everything()) %>% 
+  write.table("./1.BasicFilt/BEV_V2.Filt.80.edit.ped",
+              row.names=F, col.names=F, quote=F, sep="\t")
+
+#copy the map file to the same name
+file.copy("./1.BasicFilt/BEV_V2.Filt.80.map", 
+          "./1.BasicFilt/BEV_V2.Filt.80.edit.map", overwrite=T)
+
+```
+
+
+
+################################################
+
+
+## Perform HWE & LD tests
+
+
+```{bash 7.mkdir}
+mkdir ./2.HWE_LD_filtering
+```
+
+
+```{r define populations, eval=T}
+# subset the plink files for each population
+populations <-  read.table("./1.BasicFilt/BEV_V2.Filt.80.edit.ped",
+                           header=F) %>%
+  select(V1) %>% 
+  distinct(V1)
+
+popSizes <- samples %>% 
+  group_by(Origin) %>% 
+  count() %>%
+  subset(n > 10)
+
+populations <- populations$V1
+
+```
+
+
+```{r}
+write.table(populations, "./2.HWE_LD_filtering/populations",
+            row.names = F, col.names = F, quote=F)
+
+for(i in populations){
+  write.table(i, paste0("./2.HWE_LD_filtering/population_", i), 
+              row.names = F, col.names = F, quote=F, sep="")
+}
+
+```
+
+
+```{r 7.write plink pop_remove files}
+ped <- fread("./1.BasicFilt/BEV_V2.Filt.80.edit.ped")%>% 
+  select(V1, V2) 
+
+for(i in populations) {
+  ped %>% 
+    subset(V1 == i) %>%
+    write.table(paste0("./2.HWE_LD_filtering/Samples_", i), row.names = F, col.names = F, quote=F, sep="\t") 
+}
+
+rm(ped)
+
+populations
+```
+
+
+
+```{r 7.run plink hwe ld per pop}
+#need plink.exe in the current folder and need to edit the number
+for(i in populations){
+  system("cmd", input=paste0("plink --file ./1.BasicFilt/BEV_V2.Filt.80.edit --keep ./2.HWE_LD_filtering/Samples_", i, " --maf 0.0001 --hardy --allow-extra-chr --allow-no-sex --r2 --ld-window-r2 0  --out ./2.HWE_LD_filtering/BEV_V2.Filt.80_edit_",i))
+}
+# Note, used maf 0.0001 to exclude all the fixed loci
+```
+
+
+### Assess HWE output
+
+```{r 7.import hwe}
+# import & merge hwe data for all populations
+file.list <- list.files("./2.HWE_LD_filtering/", ".hwe")
+
+data_path <- "./2.HWE_LD_filtering/"
+files <- list.files(path= data_path, pattern=".hwe")
+
+
+
+hwe <- data_frame(filename = files) %>% # create a data frame
+  # holding the file names
+  mutate(file_contents = purrr::map(filename,          # read files into
+                                    ~ fread(file.path(data_path, .))) # a new data column
+  ) %>% 
+  unnest(cols = c(file_contents)) %>% 
+  data.frame() %>% 
+  mutate(pop =  gsub("BEV_V2.Filt.80_edit_","",filename)) %>%
+  mutate(pop = gsub(".hwe","", pop)) %>%
+  select(-filename) %>%
+  select(pop, everything())
+```
+
+```{r 7.apply hwe corrections}
+# apply multiple testing corrections
+hwe_corrections <- data.frame(
+  pop = character(),
+  CHR = integer(),
+  SNP  =character() ,
+  A1  = character(),
+  A2  = character(),
+  GENO = character(),
+  O.HET.  = numeric(),
+  E.HET. = numeric(),
+  P = numeric()
+)
+
+
+for(i in populations){
+  hwe1 <- subset(hwe, pop == i) %>%
+    select(-TEST) %>%
+    mutate(p_BY = p.adjust(P, method = "BY", n = length(P)))
+  
+  hwe_corrections <- rbind(hwe_corrections, hwe1)  
+}
+
+rm(hwe1)
+
+hwe_corrections <- hwe_corrections %>%
+  mutate(Sig_BY = ifelse(hwe_corrections$p_BY > 0.05, NA, hwe_corrections$p_BY))
+```
+
+
+```{r 7.write hwe corrections to file}
+write.table(hwe_corrections, 
+            "./2.HWE_LD_filtering/hwe_per_population.txt",
+            row.names = F,
+            quote=F,
+            sep="\t")
+```
+
+
+
+```{r 7.eval HWE, eval=T, echo=F}
+# How many loci out of HWE  per population 
+hwe_corrections <- data.table::fread("./2.HWE_LD_filtering/hwe_per_population.txt")
+
+N_HWE <- hwe_corrections %>%
+  group_by(pop) %>%
+  subset(p_BY < 1) %>%
+  count() %>%
+  rename(BY = n) 
+
+
+
+N_HWE %>%
+  tidyr::pivot_longer(-pop, names_to="correction", values_to="n_sig") %>%
+  ggplot()+
+  geom_bar(aes(pop, n_sig, fill=pop), stat="identity")+
+  facet_wrap(~correction)+
+  xlab("Number of loci out of HWE \nfor each correction method")+
+  nord::scale_fill_nord("frost")+
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1))
+
+```
+
+
+Number of SNPs out of HWE in multiple populations after BY correction: 
+
+```{r, eval=T, echo=F}
+# How many SNPs are our of HWE in > 1 population with BY? 
+BY <- hwe_corrections %>%
+  select(pop, CHR, SNP, Sig_BY) %>% 
+  subset(!is.na(Sig_BY)) %>% 
+  group_by(SNP) %>%
+  count() %>% 
+  subset(n >1) %>% 
+  group_by(n) %>% 
+  count() %>% 
+  rename(N_populations =n, n = nn)
+
+kable(BY)
+
+```
+
+Several SNPs out of HWE in more than one population:
+| N_populations|  n|
+|-------------:|--:|
+|             2| 22|
+|             3| 11|
+|             4| 33|
+|             5| 23|
+
+
+
+```{r}
+BY <- hwe_corrections %>%
+  mutate(CHR_SNP = paste(CHR, SNP, sep="_")) %>% 
+  select(pop, CHR, SNP, CHR_SNP, Sig_BY) %>% 
+  subset(!is.na(Sig_BY)) 
+
+#exclude SNPs out of HWE in more than 2 populations
+exclude_HW <- 
+  BY %>%  
+  group_by(CHR_SNP) %>% 
+  count() %>% 
+  subset(n > 2) # 67 SNPs
+
+subset(BY, CHR_SNP %in% exclude_HW$CHR_SNP) %>% 
+  select(CHR, SNP) %>% 
+  distinct() %>% 
+  write.table("./2.HWE_LD_filtering/BEV_V2.Filt.80_edit_EXCLUDE",
+              row.names = F, col.names = F, quote=F, sep="\t")
+  
+
+```
+
+In total, 67 SNPs were selected for exclusion. 
+
+
+
+### Assess LD output
+
+Look at how LD varies with distance between SNP A & B (LD only calculated for SNPs within 50000 kb)
+
+```{r, eval=T}
+# import LD output
+
+data_path <- "./2.HWE_LD_filtering/"
+files <- list.files(path= data_path, pattern=".ld")
+
+ld <- data_frame(filename = files) %>% # create a data frame
+  # holding the file names
+  mutate(file_contents = map(filename,          # read files into
+                             ~ fread(file.path(data_path, .))) # a new data column
+  ) %>% 
+  unnest(cols = c(file_contents)) %>% 
+  data.frame() %>%
+  mutate(pop =  gsub("BEV_V2.Filt.80_edit_","",filename)) %>%
+  mutate(pop = gsub(".ld","", pop)) %>%
+  select(-filename) %>%
+  select(pop, everything()) %>% 
+  mutate(Distance = BP_B-BP_A) %>% 
+  mutate(snpA_B = paste0(SNP_A, SNP_B))
+
+```
+
+
+
+```{r, eval=T}
+# how many snps in high ld per population
+
+ld %>% 
+  group_by(pop) %>% 
+  subset(R2 > 0.8) %>% 
+  count()
+```
+
+```{r, eval=T}
+# how many snps in med ld per population
+
+ld %>% 
+  group_by(pop) %>%
+  subset(R2 > 0.5) %>% 
+  count()
+```
+
+
+How many SNPs in LD in multiple populations?
+```{r, eval=T}
+ld %>%  
+  subset(R2 > 0.8) %>% 
+  group_by(snpA_B) %>% 
+  count() %>% 
+  subset(n > 1) %>% 
+  group_by(n) %>%
+  count() %>% 
+  rename(N_pops = n, n = nn)
+  
+```
+
+
+
+*Identify SNPs to exclude based on LD*  
+
+For each pair of SNPs with LD R^2 > 0.8, exclude the SNP with the lowest genotyping rate. 
+
+
+Generate data on missingness per snp.  
+
+```{r 7.plink missing}
+# calculate overall missingness per SNP
+system("cmd", input=paste0("plink --file ./1.BasicFilt/BEV_V2.Filt.80.edit  --missing --allow-extra-chr --out ./1.BasicFilt/BEV_V2.Filt.80_edit"))
+
+```
+
+
+```{r}
+# import missingness data
+lmiss <- fread("./1.BasicFilt/BEV_V2.Filt.80_edit.lmiss") %>% 
+  mutate(SNP_A = SNP) %>% 
+  mutate(SNP_B = SNP) %>% 
+  mutate(CHR_A = CHR) %>% 
+  mutate(CHR_B = CHR) %>% 
+  mutate(F_MISS_A = F_MISS) %>% 
+  mutate(F_MISS_B = F_MISS) 
+
+# create subset of SNPs with R2 > 0.8
+SNP_pair_exclude <- 
+  ld %>% 
+  subset(R2 > 0.8) %>% 
+  group_by(snpA_B) %>% 
+  count() %>% 
+  subset(n > 2) 
+
+# identify SNP with highest missingness
+ld_miss <- left_join(ld, select(lmiss, SNP_A, CHR_A, F_MISS_A))
+ld_miss <- left_join(ld_miss, select(lmiss, SNP_B, CHR_B, F_MISS_B))
+ld_miss$Exclude <- ifelse(ld_miss$F_MISS_A < ld_miss$F_MISS_B, "SNP_B", "SNP_A")
+ld_miss$SNP_Exclude <- ifelse(ld_miss$F_MISS_A < ld_miss$F_MISS_B, ld_miss$SNP_B, ld_miss$SNP_A)
+ld_miss$CHR_Exclude <- ifelse(ld_miss$F_MISS_A < ld_miss$F_MISS_B, ld_miss$CHR_B, ld_miss$CHR_A)
+ld_miss$BP_Exclude <- ifelse(ld_miss$F_MISS_A < ld_miss$F_MISS_B, ld_miss$BP_B, ld_miss$BP_A)
+
+# write the snps
+subset(ld_miss, snpA_B %in% SNP_pair_exclude$snpA_B) %>% 
+  select(CHR_Exclude, SNP_Exclude) %>% 
+  distinct() %>%
+  write.table("./2.HWE_LD_filtering/BEV_V2.Filt.80_edit_EXCLUDE",
+              row.names = F, col.names = F, quote=F, sep="\t", append=T)
+```
+
+
+
+
+
+## Filtered data set
+
+Filter out HWE and LD SNPs to create final dataset  
+```{r 8. HWE & ld filtering}
+
+dir.create("./3.HWE_LD_filtered")
+
+system("cmd", input=paste0("plink --file ./1.BasicFilt/BEV_V2.Filt.80.edit  --exclude ./2.HWE_LD_filtering/BEV_V2.Filt.80_edit_EXCLUDE --recode --allow-extra-chr --out ./3.HWE_LD_filtered/BEV_V2.Filt.80_HWE_LD")) 
+# 2032 SNPs remaining
+
+```
+
+
+
+# Genotyping error calculation
+
+```{r}
+dir.create("./4.repeated_samples")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+# Repeat individual analysis
+library(data.table)
+
+differences <- data.frame("variable" = as.factor(character()),
+                          "value" = as.factor(character()),
+                          "n" = as.numeric(), 
+                          "prop" = as.numeric())
+# NEED TO EXTRACT REPEATS INDIVIDUALS FIRST INTO A NEW GENEPOP FILE. Use script number 8 to do so (eg:"8_2020_01_10_Population_Genotyping_error.sh")
+
+  genepop <- read.table(paste("./3.HWE_LD_filtered/BEV_V2_filt_HWE_LD_genepop2", sep=""),sep = "\t",  header=F, colClasses = 'character')
+
+  
+  genepop$V1 <- gsub(",", "", genepop$V1)
+  
+  
+  genepop <- as.data.frame(t(genepop))
+  
+  genepop <- genepop %>% mutate_all(as.character)
+  
+  colnames(genepop) <- as.character(unlist(genepop[1,]))
+  genepop = genepop[-1, ]
+  
+  
+  genepop$BEV381 <- ifelse(genepop$BEV381a_49 == "000000" & genepop$BEV381b_49 == "000000", "both_miss",
+                           ifelse(genepop$BEV385a_49 != "000000" & genepop$BEV381b_49 == "000000", "b_miss", 
+                                  ifelse(genepop$BEV381a_49 == "000000" & genepop$BEV381b_49 != "000000", "a_miss", 
+                                         ifelse(genepop$BEV381a_49 != "000000" & genepop$BEV381b_49 != "000000",
+                                                  ifelse(genepop$BEV381a_49 == genepop$BEV381b_49, "same", "diff"), NA))))
+  
+  
+  genepop$BEV385 <- ifelse(genepop$BEV385a_49 == "000000" & genepop$BEV385b_49 == "000000", "both_miss",
+                           ifelse(genepop$BEV385a_49 != "000000" & genepop$BEV385b_49 == "000000", "b_miss", 
+                                  ifelse(genepop$BEV385a_49 == "000000" & genepop$BEV385b_49 != "000000", "a_miss", 
+                                         ifelse(genepop$BEV385a_49 != "000000" & genepop$BEV385b_49 != "000000",
+                                                  ifelse(genepop$BEV385a_49 == genepop$BEV385b_49, "same", "diff"), NA))))
+  
+  
+  genepop$BEV768_btwa <- ifelse(genepop$BEV768a_47 == "0000" & genepop$BEV768_49 == "0000", "both_miss",
+                           ifelse(genepop$BEV768a_47 != "0000" & genepop$BEV768_49 == "0000", "a_miss",
+                                  ifelse(genepop$BEV768a_47 == "0000" & genepop$BEV768_49 != "0000", "b_miss",
+                                         ifelse(genepop$BEV768a_47 != "0000" & genepop$BEV768_49 != "0000",
+                                                  ifelse(genepop$BEV768a_47 == genepop$BEV768_49, "same", "diff"), NA))))
+  
+
+  genepop$BEV768_btwb <- ifelse(genepop$BEV768b_47 == "0000" & genepop$BEV768_49 == "0000", "both_miss",
+                           ifelse(genepop$BEV768b_47 != "0000" & genepop$BEV768_49 == "0000", "a_miss",
+                                  ifelse(genepop$BEV768b_47 == "0000" & genepop$BEV768_49 != "0000", "b_miss",
+                                         ifelse(genepop$BEV768b_47 != "0000" & genepop$BEV768_49 != "0000",
+                                                  ifelse(genepop$BEV768b_47 == genepop$BEV768_49, "same", "diff"), NA))))
+    
+  
+  genepop$BEV768_in <- ifelse(genepop$BEV768a_47 == "0000" & genepop$BEV768b_47 == "0000", "both_miss",
+                           ifelse(genepop$BEV768a_47 != "0000" & genepop$BEV768b_47 == "0000", "a_miss",
+                                  ifelse(genepop$BEV768a_47 == "0000" & genepop$BEV768b_47 != "0000", "b_miss",
+                                         ifelse(genepop$BEV768a_47 != "0000" & genepop$BEV768b_47 != "0000",
+                                                  ifelse(genepop$BEV768a_47 == genepop$BEV768b_47, "same", "diff"), NA))))
+    
+  
+   
+  genepop$SNP <- rownames(genepop)
+  
+  diffs <- genepop[,8:13] %>% 
+    melt(id.vars="SNP") 
+  
+  diffs[diffs == "a_miss"] <- NA
+  diffs[diffs == "b_miss"] <- NA
+  diffs[diffs == "both_miss"] <- NA
+  
+  diffs <- reshape2::melt(diffs)
+  diffs <- na.omit(diffs)
+  
+  diffs$value <- as.factor(diffs$value)
+  
+  diffs2 <- diffs %>%  
+    group_by(variable, value) %>% 
+    tally() %>% 
+    mutate(prop=prop.table(n)) 
+
+  
+  differences <- rbind(differences, diffs2)
+
+ 
+write.table(differences, file="./4.repeated_samples/differences_R.txt",  quote= F, sep="\t")
+
+
+
+
+```
+
+```{r fig.height=8, fig.width=8, warning=F}
+
+differences<-read.table("./4.repeated_samples/differences_R.txt", header = T)
+diffplot <- subset(differences, value == "diff")
+
+
+
+ggplot2::ggplot(diffplot)+
+  geom_point(aes(variable, prop), size=4)+
+  theme_cowplot()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.major.y = element_line(colour = "grey50"),
+        panel.grid.minor.y = element_line(colour = "grey50"))+
+  xlab("variables")+ylab("Genotyping error rate")+
+  ggtitle("Proportion of genotyping errors per indiviudal")
+```
+
+
+
+```{r}
+
+## Write number of missing data per samples
+
+
+missing <- data.frame(sample_ID = c("BEV768a_47", "BEV768b_47", "BEV768_49", "BEV385a_49", "BEV385b_49", "BEV381a_49", "BEV381b_49"),
+                      missing_n = c(sum(genepop$BEV768a_47== "000000"), sum(genepop$BEV768b_47== "000000"), sum(genepop$BEV768_49== "000000"), sum(genepop$BEV385a_49== "000000"), sum(genepop$BEV385b_49 == "000000"), sum(genepop$BEV381a_49 == "000000"), sum(genepop$BEV381b_49 == "000000")))
+
+
+# We selecte the sample with the lowest amout of missing data: BEV768b_47, BEV385a_49 and BEV381b_49
+#currently need to eddit the line below with the results from the "missing data frame
+
+
+missing
+
+remove<-data.frame(c("Norway", "Tayside", "Knapdale2", "Knapdale2"), c("BEV381a_49", "BEV385a_49", "BEV768_49", "BEV768a_47"))
+
+write.table(remove, file="./4.repeated_samples/duplicate_REMOVE_R",  quote= F, row.name=F, col.name=F, sep = "\t")
+
+
+
+```
+
+
+
+
+```{r 8. Depulicate samples filtering}
+
+dir.create("./5.Repeats_excluded")
+
+#~ Remove the duplicates individuals and store them in final folder
+
+system("cmd", input=paste0("plink --file ./3.HWE_LD_filtered/BEV_V2.Filt.80_HWE_LD --allow-extra-chr --remove ./4.repeated_samples/duplicate_REMOVE_R --recode  --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final"))
+
+# 2031 SNPs and 114 individuals remaining 
+
+```
+
+
+
+
+```{r fig.height=8, fig.width=8, warning=F, fig.show="hold"}
+# import a text file with gene positions
+# columns should be: chr, position (no end or gene name required)
+
+
+library(gridExtra)
+
+genes <- read.table("./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final.map",sep="\t",header=F)
+genes <- genes %>% rename(scaffold=V1, loc.name=V2, pos_loc=V3, coord_loc=V4)
+
+
+genes100<- subset(genes, scaffold<100)
+genesabove<- subset(genes, scaffold>100)
+
+
+
+snp_pos_100<-ggplot2::ggplot(genes100)+
+  geom_point(aes(scaffold, coord_loc), size=4)+
+  theme_cowplot()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.major.y = element_line(colour = "grey50"),
+        panel.grid.minor.y = element_line(colour = "grey50"))+
+  xlab("Scaffold_name")+ylab("SNP position")+
+  ggtitle("SNP potision on each scaffold (0-100)")
+
+
+
+snp_pos_above<-ggplot2::ggplot(genesabove)+
+  geom_point(aes(scaffold, coord_loc), size=4)+
+  theme_cowplot()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.major.y = element_line(colour = "grey50"),
+        panel.grid.minor.y = element_line(colour = "grey50"))+
+  xlab("Scaffold_name")+ylab("SNP position")+
+  ggtitle("SNP potision on each scaffold (100-6500)")
+
+grid.arrange(snp_pos_100, snp_pos_above, nrow=2)
+
+```
+
+
+## Remove duplicate samples detected using KING
+
+```{bash}
+cut -f 2 -d " " 5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final.ped > 5.Repeats_excluded/popmap_ngsRelate
+
+conda activate SNP_QC
+
+plink --file 5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final --aec --recode vcf-iid --out 5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final 
+
+~/tools/ngsRelate/ngsRelate -h 5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final.vcf -z 5.Repeats_excluded/popmap_ngsRelate -T GT -c 1 -O 5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final.ngsRelate
+
+```
+
+```{r}
+ngsRel <- fread("5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final.ngsRelate")
+
+
+filter(ngsRel, KING > 0.354) %>% 
+  select(ida, idb, KING) %>% 
+  arrange(desc(KING))
+```
+
+```{r}
+c(
+"Norway\tBEV030_49",
+"Knapdale1\tBEV316_47",
+"Tayside\tBEV736_47",
+"Knapdale2\tBEV757_47"
+) %>% 
+  write.table("5.Repeats_excluded/duplicate_REMOVE_R_V2",
+              row.names=F, col.names=F, quote=F)
+
+```
+
+
+
+```{r 8. Depulicate samples filtering}
+system("cmd", input=paste0("plink --file ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final --remove ./5.Repeats_excluded/duplicate_REMOVE_R_V2 --recode --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2"))
+
+# 2031 SNPs and 110 individuals remaining 
+
+
+#Order individuals
+
+system("cmd", input=paste0("plink --file ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2 --indiv-sort f ./5.Repeats_excluded/poplist_order --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_temp1"))
+
+system("cmd", input=paste0("plink --bfile ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_temp1 --update-ids ./5.Repeats_excluded/poplist_rename.txt --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_temp2"))
+
+system("cmd", input=paste0("plink --bfile ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_temp2 --indiv-sort f ./5.Repeats_excluded/poplist_order2.txt  --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order"))
+
+
+#Remove Devon
+
+system("cmd", input=paste0("plink --bfile ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order --remove ./5.Repeats_excluded/Devon_REMOVE --recode vcf --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_nodevon"))
+
+system("cmd", input=paste0("plink --bfile ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order --remove ./5.Repeats_excluded/Devon_REMOVE --recode --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_nodevon"))
+
+```
+
+
+#Order individuals
+
+system("cmd", input=paste0("plink --file ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2 --indiv-sort f ./5.Repeats_excluded/poplist_order --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order"))
+
+#Remove Devon
+
+system("cmd", input=paste0("plink --bfile ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order --remove ./5.Repeats_excluded/Devon_REMOVE --recode vcf --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_nodevon"))
+
+system("cmd", input=paste0("plink --bfile ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order --remove ./5.Repeats_excluded/Devon_REMOVE --recode --allow-extra-chr --make-bed --out ./5.Repeats_excluded/BEV_V2.Filt.80_HWE_LD_no_dup_final_V2_order_nodevon"))
+
+```
+
+
+
+## Recode Plink file to STRUCTURE
+```{r X. Recode to STRUCTURE}
+
+#
+system("cmd", input=paste0("plink --bfile ../4.Analysis/0.Data/BEV_V2.Filt.80_HWE_LD_no_dup_final_V3 --recode structure --allow-extra-chr --out ../4.Analysis/structure/BEV_STR_V3_order"))
+
+
+```
+
+
+
+
+
+## Export_plink_population
+
+
+```{r define populations, eval=T}
+# subset the plink files for each population
+populations2 <-  read.table("../4.Analysis/0.Data/BEV_V2.Filt.80_HWE_LD_no_dup_final_V3.ped",
+                           header=F) %>%
+  select(V1) %>% 
+  distinct(V1)
+
+popSizes <- samples %>% 
+  group_by(Origin) %>% 
+  count() %>%
+  subset(n > 10)
+
+populations2 <- populations2$V1
+
+```
+
+
+```{r X. Recode to STRUCTURE}
+
+#
+system("cmd", input=paste0("plink --bfile ../4.Analysis/0.Data/BEV_V2.Filt.80_HWE_LD_no_dup_final_V3 --keep ./2.HWE_LD_filtering/Samples --recode structure --allow-extra-chr --out ../4.Analysis/structure/BEV_STR_V3_order"))
+
+# for(i in populations){
+#   system("cmd", input=paste0("plink --file ./1.BasicFilt/BEV_V2.Filt.80.edit --keep ./2.HWE_LD_filtering/Samples_", i, " --maf 0.0001 --hardy --allow-extra-chr --allow-no-sex --r2 --ld-window-r2 0  --out ./2.HWE_LD_filtering/BEV_V2.Filt.80_edit_",i))
+# }
+
+for(i in populations2){
+  system("cmd", input=paste0("plink --bfile ../4.Analysis/0.Data/BEV_V2.Filt.80_HWE_LD_no_dup_final_V3 --keep ../4.Analysis/0.Data/Keep_", i," --ibc --allow-extra-chr --out ../4.Analysis/Plink/Inbreeding/BEV_no_dup_final_V3_ibc_",i))
+}
+
+```
+
+
+
+
+
+## Recode Plink file to Festim
+```{r X. Recode to STRUCTURE}
+
+system("cmd", input=paste0("plink1_07 --bfile ../4.Analysis/0.Data/BEV_V2.Filt.80_HWE_LD_no_dup_final_V3 --freq --out ../4.Analysis/Fsuite/FEstim1.3.2/BEV_V3_Festim_2"))
+
+
+```
+
+
+## Recode Plink file to ADEGNET (With correct population name for Knapdale 1 and 2)
+```{r X. Recode to STRUCTURE}
+
+system("cmd", input=paste0("plink --file ../4.Analysis/0.Data/BEV_V2.Filt.80_HWE_LD_no_dup_final_V3_ADEGENET --recode --make-bed --allow-extra-chr --out ../4.Analysis/0.Data/BEV_V3_order_ADEGENET"))
+
+
+```
+
+## Recode Plink file to ADEGNET (With only Knapdale 1 and 2)
+```{r X. Recode to STRUCTURE}
+
+system("cmd", input=paste0("plink --file ../4.Analysis/0.Data/BEV_V3_order_ADEGENET --keep ../4.Analysis/0.Data/Keep_Knapdale_total --recode --make-bed --allow-extra-chr --out ../4.Analysis/0.Data/BEV_V3_order_ADEGENET_Knap_only"))
+
+
+```
+
+
+
+## Export Plink file with only Knapdale as one population
+```{r X. Recode to STRUCTURE}
+
+system("cmd", input=paste0("plink --file ./5.2.Dataset_Knapdale_together/BEV_V2.Filt.80_HWE_LD_no_dup_final_V3 --recode --make-bed --allow-extra-chr --keep ./5.2.Dataset_Knapdale_together/Keep_Knapdale --out ./5.2.Dataset_Knapdale_together/BEV_V3_order_Knapdale_together"))
+
+
+```
+
+

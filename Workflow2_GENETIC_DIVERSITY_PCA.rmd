@@ -1,0 +1,346 @@
+---
+title: "WG1711 BEV - 4. Analysis"
+author: "Jean-Marc Costanzi using a script from Kara Dicks"
+date: "Begun: 10/08/20, latest edit:`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r options, echo=F, message = F, warning = F}
+library(hierfstat)
+## Global options
+opts_chunk$set(comment=NA, 
+                      prompt=FALSE,
+                      tidy=TRUE,
+                      fig.width=6, 
+                      fig.height=6, 
+                      echo=T,
+                      eval=F, 
+                      warning=FALSE, 
+                      message=F)
+opts_knit$set(width=75)
+
+# Always load
+library(tidyverse)
+library(openxlsx)
+library(patchwork)
+library(data.table)
+
+
+# ggplot
+library(ggthemr)
+library(cowplot)
+ggthemr(palette = "pale", layout = "clean", 
+        line_weight = 0.7, text_size = 12, type = "outer")
+
+
+# Adegenet
+library(adegenet)
+library(SNPRelate)
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("SNPRelate")
+# BiocManager::install("qvalue")
+library(dartR)
+
+
+
+cols_all <- 
+  data.frame(Pop = c(
+    "Bavaria",
+    "Knapdale_Bavaria",
+    "Knapdale_Current",
+    "Knapdale_Norway",
+    "Norway",
+    "Tayside"
+    ),
+    Pop2 = c(
+    "Bavaria \nreference",
+    "Knapdale \nreinforcement",
+    "Knapdale \ncurrent",
+    "Knapdale trial \ntranslocation",
+    "Norway \nreference",
+    "Tayside \nreference"
+    ),
+colours= c(
+  "#BBBBBB",
+  "#EE6677",
+  "#CCBB44",
+  "#66CCEE",
+  "#4477AA",
+  "#AA3377"
+),
+Pop_order = c(
+  6,4,3,2,1,5
+))
+
+ggCols <- cols_all$colours
+names(ggCols) <- cols_all$Pop
+ggCols2 <- cols_all$colours
+names(ggCols2) <- cols_all$Pop2
+
+
+```
+
+
+
+
+# Geneitc diversity with Hierfastat
+```{r}
+dir.create("./Hierfstat")
+```
+
+
+```{r}
+# Import file from PLINK
+bev_hi <- adegenet::read.PLINK("input_data/BEV_V6_10_22_all.raw", parallel=F, quiet=T) %>%
+  dartR::gl2gi() %>%
+  hierfstat::genind2hierfstat()
+
+
+#Calculate basic populations statistics
+bs.nc<-basic.stats(bev_hi)
+```
+
+
+```{r}
+#Calculate mean Ho per population and respective 95% confidence interval 
+
+pop_ho<-(bs.nc$Ho)
+str(pop_ho)
+mean_pop_ho<-colMeans(bs.nc$Ho, na.rm=T)
+conf_ho<-apply((pop_ho), MARGIN=2, function(x){mean(x)+c(-1.96,1.96)*sd(x)/sqrt(length(x))})
+ho<-rbind(mean_pop_ho, conf_ho)
+ho_df<-as.data.frame(ho)
+row.names(ho_df) <- c("Mean_Ho","LCI_95","UCI_95")
+
+ho_df
+
+write.csv(ho_df, "Hierfstat/data_ho.csv")
+
+
+df_ho <- 
+  as.data.frame(t(ho_df)) %>% 
+  rownames_to_column("Pop") %>% 
+  full_join(select(cols_all, Pop, Pop2, Pop_order))
+
+plot_Ho <- 
+  df_ho %>% 
+ggplot(aes(reorder(Pop2, Pop_order), Mean_Ho, colour = Pop2))+
+  geom_errorbar(aes(ymin=LCI_95, 
+                    ymax=UCI_95), 
+                colour="black", width=.2)+
+  geom_point(size=2)+
+  ylab(expression(H[O]))+
+  coord_cartesian(ylim = c(0, 0.31))+
+  scale_colour_manual(values = ggCols2)+
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 40, hjust =1)
+        )
+
+plot_Ho
+
+cowplot::ggsave2("Hierfstat/plot_Ho.png",
+        plot_Ho,
+        width=18, height = 9, units = "cm")
+
+```
+
+```{r}
+
+#Calculate mean Hs per population and respective 95% confidence interval
+
+pop_hs<-(bs.nc$Hs)
+pop_hs_df<-as.data.frame(pop_hs)
+
+mean_pop_hs<-colMeans(pop_hs_df, na.rm=T)
+conf_hs<-apply((pop_hs_df), MARGIN=2, function(x){mean(x)+c(-1.96,1.96)*sd(x)/sqrt(length(x))})
+hs<-rbind(mean_pop_hs, conf_hs)
+hs_df<-as.data.frame(hs)
+row.names(hs_df) <- c("Mean_hs","LCI_95","UCI_95")
+
+hs_df
+
+
+write.csv(hs_df, "Hierfstat/data_hs.csv")
+
+
+df_hs <- 
+  as.data.frame(t(hs_df)) %>% 
+  rownames_to_column("Pop") %>% 
+  full_join(select(cols_all, Pop, Pop2, Pop_order))
+
+plot_hs <- 
+  df_hs %>% 
+ggplot(aes(reorder(Pop2, Pop_order), Mean_hs, colour = Pop2))+
+  geom_errorbar(aes(ymin=LCI_95, 
+                    ymax=UCI_95), 
+                colour="black", width=.2)+
+  geom_point(size=2)+
+  ylab(expression(H[S]))+
+  coord_cartesian(ylim = c(0, 0.31))+
+  scale_colour_manual(values = ggCols2)+
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 40, hjust =1)
+        )
+
+plot_hs
+
+cowplot::ggsave2("Hierfstat/plot_hs.png",
+        plot_hs,
+        width=18, height = 9, units = "cm")
+```
+
+
+```{r}
+#Allelic richness
+
+allrichhigh_df<-as.data.frame(allelic.richness(bev_hi,min.n=NULL,diploid=TRUE))
+
+
+mean_pop_ar<-colMeans(allrichhigh_df, na.rm=T)
+conf_ar<-apply((allrichhigh_df), MARGIN=2, function(x){mean(x)+c(-1.96,1.96)*sd(x)/sqrt(length(x))})
+ar<-rbind(mean_pop_ar, conf_ar)
+ar_df<-as.data.frame(ar)
+row.names(ar_df) <- c("Mean_ar","LCI_95","UCI_95")
+
+ar_df
+
+write.csv(ar_df, "Hierfstat/data_ar.csv")
+
+df_ar <- 
+  as.data.frame(t(ar_df)) %>% 
+  rownames_to_column("Pop") %>% 
+  filter(Pop != "min.all") %>% 
+  mutate(Pop = gsub("Ar.", "", Pop)) %>% 
+  full_join(select(cols_all, Pop, Pop2, Pop_order))
+
+
+plot_ar <- 
+  df_ar %>% 
+  ggplot(aes(reorder(Pop2, Pop_order), Mean_ar, colour = Pop2))+
+  geom_errorbar(aes(ymin=LCI_95, 
+                    ymax=UCI_95), 
+                colour="black", width=.2)+
+  geom_point(size=2)+
+  ylab(expression(Ar))+
+  coord_cartesian(ylim = c(0.99, 2.00001))+
+  scale_colour_manual(values = ggCols2)+
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 40, hjust =1)
+  )
+
+plot_ar
+
+cowplot::ggsave2("Hierfstat/plot_ar.png",
+        plot_ar,
+        width=18, height = 9, units = "cm")
+```
+
+
+
+
+```{r}
+#Calculate mean Fis per population
+pop_fis<-(bs.nc$Fis)
+
+fis <- 
+  as.data.frame(pop_fis) %>% 
+  rownames_to_column("Locus") %>% 
+  pivot_longer(!Locus, names_to = "Pop", values_to = "Fis") %>%
+  group_by(Pop) %>% 
+  subset(!is.na(Fis)) %>% 
+  summarise(Fis.mean = mean(Fis, na.rm = TRUE),
+            sd = sd(Fis, na.rm = TRUE),
+            count.Fis = n()) %>% 
+  mutate(se = sd / sqrt(count.Fis),
+         Fis.CI.ll = (Fis.mean + -1.96 * (sd/sqrt(count.Fis))),
+         Fis.CI.hl = (Fis.mean + 1.96 * (sd/sqrt(count.Fis)))) %>% 
+  select(-sd, -se) %>% 
+  mutate(N_fixed = 2031-count.Fis)
+
+write.csv(fis, "Hierfstat/data_fis.csv", row.names = F)
+
+
+
+df_fis <- 
+ fis %>% 
+  full_join(select(cols_all, Pop, Pop2, Pop_order))
+
+
+
+plot_fis <- 
+  df_fis %>% 
+ggplot(aes(reorder(Pop2, Pop_order), Fis.mean, colour = Pop2))+
+  geom_errorbar(aes(ymin=Fis.CI.ll, 
+                    ymax=Fis.CI.hl), 
+                colour="black", width=.2)+
+  geom_point(size=2)+
+  geom_hline(yintercept = 0, lty= 2, colour = "grey60")+
+  ylab(expression(`F`[is]))+
+  scale_colour_manual(values = ggCols2)+
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 40, hjust =1)
+        )
+
+plot_fis
+
+cowplot::ggsave2("Hierfstat/plot_fis.png",
+        plot_fis,
+        width=18, height = 9, units = "cm")
+
+```
+
+
+
+
+
+# PCA - Broad population structure in adegent
+```{r}
+### Import for pca
+bev_ade <- adegenet::read.PLINK("input_data/BEV_V6_10_22_all.raw", parallel=F, quiet=F)
+bev_ade <- bev_ade[bev_ade@pop != "Knapdale_Current"]
+
+##To look at PCA
+
+A_MAIN<-gl2gi(bev_ade)
+
+#Check loaded data
+sum(is.na(A_MAIN$tab))
+
+#Remvove na
+Z<-scaleGen(A_MAIN,NA.method="mean")
+dim(Z)
+
+#create PCA plots
+
+col2<-c("#BBBBBB", "#EE6677", "#66CCEE", "#4477AA", "#AA3377")
+
+#x1 y2
+pca3 <- dudi.pca(Z,cent=FALSE,scale=FALSE,scannf=FALSE,nf=3)
+s.class(pca3$li, pop(A_MAIN), xax=1, yax=2, col=transp(col2,.75), axesell=FALSE, cstar=0, cpoint=4, grid=TRUE, clabel=1.2)
+
+add.scatter.eig(pca3$eig[1:20],nf=1,xax=1,yax=2,posi = "bottomright")
+
+#x1 y3
+pca3 <- dudi.pca(Z,cent=FALSE,scale=FALSE,scannf=FALSE,nf=3)
+s.class(pca3$li, pop(A_MAIN), xax=1, yax=3, col=transp(col2,.75), axesell=FALSE, cstar=0, cpoint=4, grid=TRUE, clabel=1.2)
+# add.scatter.eig(pca3$eig[1:20],nf=1,xax=1,yax=3,posi = "bottomleft")
+
+
+#x2 y3
+pca3 <- dudi.pca(Z,cent=FALSE,scale=FALSE,scannf=FALSE,nf=3)
+s.class(pca3$li, pop(A_MAIN), xax=2, yax=3, col=transp(col2,.75), axesell=FALSE, cstar=0, cpoint=4, grid=TRUE, clabel=1.2)
+# add.scatter.eig(pca3$eig[1:20],nf=1,xax=2,yax=3,posi = "bottomleft")
+
+
+
+```

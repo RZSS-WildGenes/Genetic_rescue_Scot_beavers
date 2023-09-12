@@ -1,0 +1,332 @@
+---
+title: "Beaver structure workflow"
+author: "Kara Dicks"
+date: '`r Sys.Date()`'
+output:
+  rmdformats::downcute:
+    self_contained: true
+    toc_depth: 4
+    code_folding: show
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r options, echo=F, message = F, warning = F}
+library(knitr)
+library(rmdformats)
+
+## Global options
+opts_chunk$set(comment=NA, 
+                      prompt=FALSE,
+                      fig.width=6, 
+                      fig.height=6, 
+                      echo=T,
+                      eval=T, 
+                      warning=FALSE, 
+                      message=F)
+opts_knit$set(width=75)
+
+# Always load
+library(tidyverse)
+library(patchwork)
+library(data.table)
+
+
+# ggplot
+library(ggthemr)
+ggthemr(palette = "pale", layout = "clean", 
+        line_weight = 0.7, text_size = 12, type = "outer")
+library(cowplot)
+
+#remotes::install_github('royfrancis/pophelper')
+library(pophelper)
+library(ParallelStructure)
+
+```
+
+Package versions:
+Structure v2.3.4 
+pophelper v2.3.1
+
+
+```{bash}
+# because the structure file was made using plink, need to manually remove the two header lines
+cp input_data/BEV_V6_10_22_STRUCTURE.recode.strct_in Structure/.
+sed -i -e '1,2d' Structure/BEV_V6_10_22_STRUCTURE.recode.strct_in 
+```
+
+
+# Create job matrix
+```{r, eval = F}
+# Create the job matrix
+
+#~~ construct job matrix and write to job file
+options(scipen=999)
+
+nrep <- 5
+up_to_k <- 6
+
+niter <- 1000000
+burnin <- 500000
+
+#~~ define variables for job matrix
+
+k_var <- rep(1:up_to_k, each = nrep)
+ID_var <- as.character(sapply(c(1:up_to_k), function(k) sapply(c(1:nrep), function(x) paste0("T",k, "_", x))))
+
+#~~ make the job matrix
+pop <- "1,2,3,4,5,6"
+
+stru_jobs <- matrix(c(ID_var, rep(pop, nrep * up_to_k), k_var, rep(burnin, nrep * up_to_k),
+                      rep(niter, nrep * up_to_k)), nrow = nrep * up_to_k)
+
+# write each value of k to a different file to speed up analysis
+
+for(i in 1:8){
+  data.frame(stru_jobs) %>% 
+    subset(X3 == i) %>% 
+    write.table(paste0("Structure/stru_jobs_",i, ".txt"),
+                row.names=F, col.names = F, quote=F, sep=" ")
+}
+
+```
+
+```{bash, eval = F}
+
+for i in {1..6}
+do
+nohup Rscript Script_run_structure_anyK.R $i "./Structure" "BEV_V6_10_22_STRUCTURE.recode.strct_in" &> Structure/run_stru_k${i}.nohup.out &
+done
+
+
+```
+
+
+
+
+## Visualising results
+
+```{r}
+setwd("~/data_store/3.WG_Projects/WG1711_BEV/WG1711_BEV_V2/4.Analysis/Final_files/Data_BEV_V6_10_2022/Structure/")
+
+library(pophelper)
+
+sfiles <- list.files("output_files",full.names = T, pattern = "_f")
+slist <- readQ(files = sfiles, filetype="structure", indlabfromfile = T)
+
+tr1 <- tabulateQ(qlist=slist)
+sr1 <- summariseQ(tr1)
+
+em <- evannoMethodStructure(data=sr1)
+p <- evannoMethodStructure(data=sr1,exportplot=F,returnplot=T,returndata=F,basesize=12,linesize=0.7)
+p2 <- gridExtra::grid.arrange(p)
+
+plot(p2)
+
+```
+```{r, eval = F}
+ggsave2("plot_evanno_method.jpg",
+        p2,
+        width=30, height =20, units = "cm")
+```
+
+```{r, eval = F}
+clumppExport(qlist=slist,  exportpath="output_files/")
+```
+
+```{bash, eval = F}
+# run clump to summarise repeats
+cp ~/tools/CLUMPP_Linux64.1.1.2/CLUMPP Structure/output_files/pop_K2/.
+cp ~/tools/CLUMPP_Linux64.1.1.2/CLUMPP Structure/output_files/pop_K3/.
+cp ~/tools/CLUMPP_Linux64.1.1.2/CLUMPP Structure/output_files/pop_K4/.
+cp ~/tools/CLUMPP_Linux64.1.1.2/CLUMPP Structure/output_files/pop_K5/.
+cp ~/tools/CLUMPP_Linux64.1.1.2/CLUMPP Structure/output_files/pop_K6/.
+
+
+for i in {2..6}
+do
+cd Structure/output_files/pop_K${i}
+./CLUMPP
+cp pop_K${i}-combined-merged.txt ../.
+rm CLUMPP
+cd ../../..
+done
+
+
+
+```
+
+
+
+
+```{r, eval = F}
+# create an ID file then manually add in the populations
+ids <- fread("output_files/results_job_T3_1_q") %>% 
+  select(V1) %>% 
+  rename(Sample = V1)
+
+pops <- 
+  openxlsx::read.xlsx("../List_beavers_groups_HT_edits.xlsx", sheet="Clean_data_KD") %>%
+  rename(Group2 = `Group2_(where_relevant)`)
+
+
+id_pop <- left_join(ids, pops)
+
+
+
+# now re-run the code with summariesed files
+sfiles <- list.files("output_files",full.names = T, pattern = "-combined-merged.txt")
+slist <- readQ(files = sfiles, indlabfromfile = T)
+
+for(i in seq(2:6)){
+rownames(slist[[i]]) <- id_pop$Sample
+}
+
+#Change the names of datasets
+number_clusters <- lengths(slist) 
+names(slist) <- paste("K=", number_clusters, sep="")
+
+attr(slist$`K=2`, "ind") <- id_pop$Sample
+attr(slist$`K=3`, "ind") <- id_pop$Sample
+attr(slist$`K=4`, "ind") <- id_pop$Sample
+attr(slist$`K=5`, "ind") <- id_pop$Sample
+attr(slist$`K=6`, "ind") <- id_pop$Sample
+
+tr1 <- tabulateQ(qlist=slist)
+sr1 <- summariseQ(tr1)
+
+
+```
+
+
+
+
+
+```{r}
+slist1 <- alignK(slist)
+
+
+slist2 <- slist1
+
+# rearrange k=4 so that the clusters are coloured in the right order
+slist2_k4 <- slist2$`K=4`
+slist2_k4$O4_N1 <- slist2_k4$Cluster4
+slist2_k4$O1_N4 <- slist2_k4$Cluster1
+slist2_k4$O2_N3 <- slist2_k4$Cluster2
+slist2_k4$O3_N2 <- slist2_k4$Cluster3
+
+
+
+slist2_k4 <- 
+  slist2_k4 %>% 
+  select(-Cluster1, -Cluster2, -Cluster3, -Cluster4) %>% 
+  rename(Cluster1 = O4_N1, 
+         Cluster2 = O3_N2,
+         Cluster3 = O2_N3,
+         Cluster4 = O1_N4) %>% 
+  select(Cluster1, Cluster2, Cluster3, Cluster4)
+
+slist1$`K=4` <- slist2_k4
+
+# rearrange k=5 so that the clusters are coloured in the right order
+slist2_k5 <- slist2$`K=5`
+slist2_k5$O4_N1 <- slist2_k5$Cluster4
+slist2_k5$O1_N4 <- slist2_k5$Cluster1
+slist2_k5$O5_N3 <- slist2_k5$Cluster5
+slist2_k5$O3_N2 <- slist2_k5$Cluster3
+slist2_k5$O2_N5 <- slist2_k5$Cluster2
+
+slist2_k5 <- 
+  slist2_k5 %>% 
+  select(-Cluster1, -Cluster2, -Cluster3, -Cluster4, -Cluster5) %>% 
+  rename(Cluster1 = O4_N1, 
+         Cluster2 = O3_N2,
+         Cluster3 = O5_N3,
+         Cluster4 = O1_N4,
+         Cluster5 = O2_N5) %>% 
+  select(Cluster1, Cluster2, Cluster3, Cluster4, Cluster5)
+
+slist1$`K=5` <- slist2_k5
+
+
+# rearrange k=6 so that the clusters are coloured in the right order
+slist2_k6 <- slist2$`K=6`
+slist2_k6$O4_N1 <- slist2_k6$Cluster4
+slist2_k6$O1_N4 <- slist2_k6$Cluster1
+slist2_k6$O5_N3 <- slist2_k6$Cluster5
+slist2_k6$O3_N2 <- slist2_k6$Cluster3
+slist2_k6$O2_N5 <- slist2_k6$Cluster2
+
+slist2_k6 <- 
+  slist2_k6 %>% 
+  select(-Cluster1, -Cluster2, -Cluster3, -Cluster4, -Cluster5) %>% 
+  rename(Cluster1 = O4_N1, 
+         Cluster2 = O3_N2,
+         Cluster3 = O5_N3,
+         Cluster4 = O1_N4,
+         Cluster5 = O2_N5) %>% 
+  select(Cluster1, Cluster2, Cluster3, Cluster4, Cluster5, Cluster6)
+
+slist1$`K=6` <- slist2_k6
+
+
+
+colours <- c("#006E82","#8214A0","#005AC8","#00A0FA","#FA78FA","#14D2DC","#AA0A3C","#FA7850","#0AB45A","#F0F032","#A0FA82","#FAE6BE")
+
+colours <- c("#4477AA",
+             "#BBBBBB",
+             "#CC5803",
+             "#34113F",
+             "#F7F5FB",
+             "#AA0A3C")
+
+colours <- c("#4477AA",
+             "#AA3377",
+             "#BBBBBB",
+             "#CC5803",
+             "#34113F",
+ #            "#F7F5FB",
+             "#FEB2B3")
+             
+
+pops <- id_pop[,4]
+
+k2_6_plot <- 
+  plotQ(slist1[c("K=2","K=3", "K=4", "K=5", "K=6")],
+        imgoutput="join",
+        exportplot = FALSE, 
+        clustercol=colours,
+        returnplot = TRUE,basesize=12, 
+        splab = c("K=2","K=3", "K=4", "K=5", "K=6"),
+        showlegend = TRUE, legendpos = "right", 
+        legendkeysize = 5, legendtextsize = 12,
+        showyaxis=T,showticks=T,panelspacer=0.4, 
+        selgrp="Group_code", grplab = pops,
+        grplabsize=6,linesize=0.5,pointsize=3,ordergrp=T,
+        barbordercolour="grey20",barbordersize=0.1,
+        sharedindlab=T, indlabsize=14, indlabheight = 1
+        )
+
+
+plot_k2_k6 <- cowplot::plot_grid(k2_6_plot$plot[[1]])
+
+plot_k2_k6
+```
+
+```{r, eval = F}
+ggsave2("plot_k2_k6_narrow.jpg",
+        plot_k2_k6,
+        width=26, height = 16, units = "cm")
+ggsave2("plot_k2_k6_narrow.svg",
+        plot_k2_k6,
+        width=26, height = 16, units = "cm")
+```
+
+
+
+
+
+
+
+
