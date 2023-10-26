@@ -201,7 +201,7 @@ cowplot::ggsave2("Hierfstat/plot_hs.png",
 ```{r}
 #Allelic richness
 
-allrichhigh_df<-as.data.frame(allelic.richness(bev_hi,min.n=NULL,diploid=TRUE))
+allrichhigh_df<-as.data.frame(allelic.richness(bev_hi,min.n=11,diploid=TRUE))
 
 
 mean_pop_ar<-colMeans(allrichhigh_df, na.rm=T)
