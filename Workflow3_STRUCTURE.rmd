@@ -1,7 +1,7 @@
 ---
-title: "Beaver structure workflow"
+title: "Beaver structure visualisation workflow"
 author: "Kara Dicks"
-date: '`r Sys.Date()`'
+date: ''
 output:
   rmdformats::downcute:
     self_contained: true
