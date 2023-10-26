@@ -83,7 +83,7 @@ names(ggCols) <- cols_all$Pop
 ggCols2 <- cols_all$colours
 names(ggCols2) <- cols_all$Pop2
 
-
+source("Scripts/basic_stats.R")
 ```
 
 
