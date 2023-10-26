@@ -1,7 +1,7 @@
 ---
-title: "WG1711 BEV - 4. Analysis"
-author: "Jean-Marc Costanzi using a script from Kara Dicks"
-date: "Begun: 10/08/20, latest edit:`r Sys.Date()`"
+title: "Scot Beavers - Genetic diversity"
+author: "Jean-Marc Costanzi, Kara Dicks"
+date: ""
 output:
   rmdformats::readthedown:
     highlight: kate
