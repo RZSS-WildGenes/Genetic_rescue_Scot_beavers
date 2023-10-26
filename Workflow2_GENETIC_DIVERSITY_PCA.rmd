@@ -26,7 +26,6 @@ opts_knit$set(width=75)
 
 # Always load
 library(tidyverse)
-library(openxlsx)
 library(patchwork)
 library(data.table)
 
