@@ -1,7 +1,7 @@
 ---
-title: "Scot Beavers - Genetic diversity"
-author: "Jean-Marc Costanzi, Kara Dicks"
-date: ""
+title: "WG1711 BEV - 4. Analysis"
+author: "Jean-Marc Costanzi using a script from Kara Dicks"
+date: "Begun: 10/08/20, latest edit:`r Sys.Date()`"
 output:
   rmdformats::readthedown:
     highlight: kate
@@ -26,6 +26,7 @@ opts_knit$set(width=75)
 
 # Always load
 library(tidyverse)
+library(openxlsx)
 library(patchwork)
 library(data.table)
 
@@ -45,7 +46,6 @@ library(SNPRelate)
 # BiocManager::install("SNPRelate")
 # BiocManager::install("qvalue")
 library(dartR)
-
 
 
 cols_all <- 
@@ -82,7 +82,7 @@ names(ggCols) <- cols_all$Pop
 ggCols2 <- cols_all$colours
 names(ggCols2) <- cols_all$Pop2
 
-source("Scripts/basic_stats.R")
+
 ```
 
 
@@ -200,7 +200,7 @@ cowplot::ggsave2("Hierfstat/plot_hs.png",
 ```{r}
 #Allelic richness
 
-allrichhigh_df<-as.data.frame(allelic.richness(bev_hi,min.n=11,diploid=TRUE))
+allrichhigh_df<-as.data.frame(allelic.richness(bev_hi,min.n=NULL,diploid=TRUE))
 
 
 mean_pop_ar<-colMeans(allrichhigh_df, na.rm=T)
@@ -240,7 +240,7 @@ plot_ar
 
 cowplot::ggsave2("Hierfstat/plot_ar.png",
         plot_ar,
-        width=13, height = 9.5, units = "cm")
+        width=18, height = 9, units = "cm")
 ```
 
 
