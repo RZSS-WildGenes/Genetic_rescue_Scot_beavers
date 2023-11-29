@@ -83,22 +83,10 @@ ngsRelate v2
 
 
 
-# Test out effect of MAF filtering on KING results
-
 ```{bash}
 # note have to include each individual only once, so using the structure file as input. 
 
-plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE # create standard vcf - 1451 SNPs
-
-
-# Now filter for MAF
-plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --maf 0.1 --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE_maf0.1 # 1391 SNPs
-
-
-plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --maf 0.2 --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE_maf0.2 #1078 SNPs
-
-
-plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --maf 0.3 --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE_maf0.3 # 580 SNPs
+plink --file input_data/BEV_V6_10_22_STRUCTURE --allow-extra-chr --recode vcf-iid --out input_data/BEV_V6_10_22_STRUCTURE 
 
 ```
 
@@ -111,12 +99,6 @@ mkdir Kinship
 grep "^#CHROM" input_data/BEV_V6_10_22_STRUCTURE.vcf | sed 's/\t/\n/g' | grep "^BEV"  > Kinship/popmap_ngsRelate
 
 ~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE.ngsRelate
-
-~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE_maf0.1.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE_maf0.1.ngsRelate
-
-~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE_maf0.2.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE_maf0.2.ngsRelate
-
-~/tools/ngsRelate/ngsRelate -h input_data/BEV_V6_10_22_STRUCTURE_maf0.3.vcf -z Kinship/popmap_ngsRelate -T GT -c 1 -O Kinship/BEV_V6_10_22_STRUCTURE_maf0.3.ngsRelate
 ```
 
 
@@ -137,27 +119,10 @@ king_maf0 <- fread("Kinship/BEV_V6_10_22_STRUCTURE.ngsRelate", header=T) %>%
   mutate(maf = 0)
 
 
-king_maf1 <- fread("Kinship/BEV_V6_10_22_STRUCTURE_maf0.1.ngsRelate", header=T) %>% 
-  select(ida, idb, R0, R1, nSites, KING) %>% 
-  left_join(select(pops, ida, PopA, Pop2A)) %>% 
-  left_join(select(pops, idb, PopB, Pop2B)) %>%
-  mutate(maf = 0.1)
-
-king_maf2 <- fread("Kinship/BEV_V6_10_22_STRUCTURE_maf0.2.ngsRelate", header=T) %>% 
-  select(ida, idb, R0, R1, nSites, KING) %>% 
-  left_join(select(pops, ida, PopA, Pop2A)) %>% 
-  left_join(select(pops, idb, PopB, Pop2B)) %>%
-  mutate(maf = 0.2)
-  
-king_maf3 <- fread("Kinship/BEV_V6_10_22_STRUCTURE_maf0.3.ngsRelate", header=T) %>% 
-  select(ida, idb, R0, R1, nSites, KING) %>% 
-  left_join(select(pops, ida, PopA, Pop2A)) %>% 
-  left_join(select(pops, idb, PopB, Pop2B)) %>%
-  mutate(maf = 0.3)
   
 
 king <- 
-  rbind(king_maf0, king_maf1, king_maf2, king_maf3) %>% 
+  king_maf0 %>% 
   mutate(Pop_same = ifelse(PopA == PopB, PopA, NA),
          maf = as.character(maf)) %>% 
   filter(Pop_same != "Knapdale_BORN") %>% # be aware that this removes all NA values as well
@@ -202,75 +167,12 @@ king_summ0 <-
   select(-sd, -se, -count)%>% 
   mutate(maf = 0)
 
-king_summ1 <- 
-  king %>% 
-  filter(maf == 0.1 & !is.na(Pop_same)) %>% 
-  group_by(Pop_same) %>% 
-  summarise(mean = mean(KING, na.rm = TRUE),
-            sd = sd(KING, na.rm = TRUE),
-            count = n()) %>% 
-  mutate(se = sd / sqrt(count),
-         CI.ll = (mean + -1.96 * (sd/sqrt(count))),
-         CI.hl = (mean + 1.96 * (sd/sqrt(count)))) %>% 
-  select(-sd, -se, -count) %>% 
-  mutate(maf = 0.1)
-
-king_summ2 <- 
-  king %>% 
-  filter(maf == 0.2 & !is.na(Pop_same)) %>% 
-  group_by(Pop_same) %>% 
-  summarise(mean = mean(KING, na.rm = TRUE),
-            sd = sd(KING, na.rm = TRUE),
-            count = n()) %>% 
-  mutate(se = sd / sqrt(count),
-         CI.ll = (mean + -1.96 * (sd/sqrt(count))),
-         CI.hl = (mean + 1.96 * (sd/sqrt(count)))) %>% 
-  select(-sd, -se, -count)%>% 
-  mutate(maf = 0.2)
-
-king_summ3 <- 
-  king %>% 
-  filter(maf == 0.3 & !is.na(Pop_same)) %>% 
-  group_by(Pop_same) %>% 
-  summarise(mean = mean(KING, na.rm = TRUE),
-            sd = sd(KING, na.rm = TRUE),
-            count = n()) %>% 
-  mutate(se = sd / sqrt(count),
-         CI.ll = (mean + -1.96 * (sd/sqrt(count))),
-         CI.hl = (mean + 1.96 * (sd/sqrt(count)))) %>% 
-  select(-sd, -se, -count)%>% 
-  mutate(maf = 0.3)
-
 
 
 king_summ <- 
-  rbind(king_summ0, king_summ1, king_summ2, king_summ3) %>% 
+  king_summ0 %>% 
   left_join(cols_all) %>% 
   mutate(maf = as.character(maf))
-```
-
-```{r}
-plot_king_maf <-
-king_summ %>% 
-  ggplot(aes(maf, mean, colour=Pop_same2))+
-  geom_errorbar(aes(ymin=CI.ll, 
-                    ymax=CI.hl), 
-                colour="black", width=.2)+
-  geom_point(size=3)+
-  facet_wrap(~(reorder(Pop_same2, Pop_order)),scales="free_y") +
-  ylab(expression("Mean kinship (KING)"))+
-  xlab("Minor allele frequency") +
-  scale_color_manual(values=ggCols2)+
-  theme(legend.position = "none")
-
-plot_king_maf
-```
-
-
-```{r, eval = F}
-ggsave2("Kinship/plot_King_varying_maf_meanCI.jpg",
-        plot_king_maf,
-        width=18, height = 12, units = "cm")
 ```
 
 
@@ -666,4 +568,3 @@ ggsave2("Kinship/plot_known_relationships_R0.jpg",
         width=23, height = 12, units = "cm")
 
 ```
-
