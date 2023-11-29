@@ -6,7 +6,7 @@ Taylor et al, In prep, *The genetic legacy of the first successful reintroductio
 
 ## 0. SNP calling
 
-Reference aligned SNP calling was carried out using the the pipelines within the folder [Snakemake](https://github.com/RZSS-WildGenes/Scottish_Beaver_Reinforcement/tree/main/Snakemake). These were written in Snakemake following the pipeline origianally published in [Dicks et al, 2023](https://doi.org/10.1111/eva.13515).
+Reference aligned SNP calling was carried out using the the pipelines within the folder [0.Snakemake](https://github.com/RZSS-WildGenes/Scottish_Beaver_Reinforcement/tree/main/Snakemake). These were written in Snakemake following the pipeline origianally published in [Dicks et al, 2023](https://doi.org/10.1111/eva.13515).
 
   [1. mapping](https://github.com/RZSS-WildGenes/Scottish_Beaver_Reinforcement/tree/main/Snakemake/1.mapping): Performs BWA mapping, sorting and generation of mapping summary statistics. 
   
